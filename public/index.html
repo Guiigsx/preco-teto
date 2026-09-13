@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Compare preço teto, preço de compra e margem de segurança por setor." />
+  <title>Preços justos | Stock Teto</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/prices.css?v=20260913-2" />
+  <script defer src="/js/fair-price-model.js?v=20260913-2"></script>
+  <script defer src="/js/prices.js?v=20260913-2"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Stock Teto, início"><span class="brand-mark"><img src="/icons/chart-no-axes-combined.svg" alt="" /></span><strong>Stock Teto</strong></a>
+    <span class="header-label">Preços justos</span>
+  </header>
+  <main class="shell">
+    <div class="page-heading"><h1>Meus ativos</h1><span id="asset-count" class="muted">0 ativos</span></div>
+    <form id="search-form" class="searchbar" autocomplete="off">
+      <div class="search-field"><img src="/icons/search.svg" alt="" /><label class="sr-only" for="ticker">Buscar por empresa ou ticker</label><input id="ticker" name="ticker" placeholder="Buscar empresa ou ticker. Ex.: Itaú, Petrobras, BBAS3" maxlength="80" spellcheck="false" autocapitalize="characters" autocomplete="off" aria-autocomplete="list" aria-controls="ticker-suggestions" required /><div id="ticker-suggestions" class="suggestions" role="listbox" hidden></div></div>
+      <button id="add-button" class="button primary" type="submit" value="add"><img src="/icons/plus.svg" alt="" />Adicionar</button>
+      <button id="analyze-button" class="button secondary" type="submit" value="analyze"><img src="/icons/scan-search.svg" alt="" />Analisar</button>
+    </form>
+    <p id="message" class="message" role="status" aria-live="polite" hidden></p>
+    <section class="asset-section" aria-labelledby="stocks-heading">
+      <div class="section-heading"><div class="class-title"><span class="class-line stock"></span><h2 id="stocks-heading">Ações</h2><span id="stock-count" class="count">0</span></div>
+        <div class="controls stock-controls"><span class="muted">Média dos métodos · compra com margem</span><div id="sector-filter" class="sector-filter" aria-label="Filtrar ações por setor"></div></div>
+      </div>
+      <div id="stocks-list"></div>
+    </section>
+    <section class="asset-section" aria-labelledby="fiis-heading">
+      <div class="section-heading"><div class="class-title"><span class="class-line fii"></span><h2 id="fiis-heading">FIIs</h2><span id="fii-count" class="count">0</span></div>
+        <div class="controls"><span class="muted">Renda normalizada + VPA + qualidade</span></div>
+      </div>
+      <div id="fiis-list"></div>
+    </section>
+    <footer><span>Lista salva neste navegador.</span><span id="sync-status" role="status">Atualização automática a cada minuto.</span></footer>
+  </main>
+  <dialog id="analysis-dialog" aria-labelledby="analysis-title">
+    <div class="dialog-header"><span class="muted">Memorial de cálculo</span><button id="close-dialog" class="icon-button" aria-label="Fechar análise" title="Fechar análise"><img src="/icons/x.svg" alt="" /></button></div>
+    <div id="analysis-content"></div>
+  </dialog>
+</body>
+</html>

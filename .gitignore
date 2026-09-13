@@ -1,0 +1,30 @@
+# Dependencies and local build state
+node_modules/
+.vercel/
+npm-debug.log*
+
+# Secrets
+.env*
+!.env.example
+
+# Local/generated artifacts
+outputs/
+tmp/
+verification-home.png
+*.log
+*.pid
+
+# Personal spreadsheets and side projects kept in this folder
+*.xlsx
+gastos-dashboard-app/
+render.yaml
+
+# Legacy/local dashboard files not used by the published Stock Teto app
+public/css/style.css
+public/js/app.js
+src/data/
+src/routes/api.js
+src/routes/portfolio.js
+src/routes/stocks.js
+src/services/portfolioService.js
+src/services/stockService.js
