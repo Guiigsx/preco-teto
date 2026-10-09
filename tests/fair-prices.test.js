@@ -70,6 +70,13 @@ test('parser uses matching logo and adjusted cash amount, and preserves numeric 
   assert.throws(() => parseAssetPage(fixture(), 'FAKE3', 'stock', now));
 });
 
+test('Axia and Irani use their investment sectors', () => {
+  const axia = parseAssetPage(fixture().replaceAll('TEST3', 'AXIA3').replaceAll('test3', 'axia3'), 'AXIA3', 'stock', now);
+  const irani = parseAssetPage(fixture().replaceAll('TEST3', 'RANI3').replaceAll('test3', 'rani3'), 'RANI3', 'stock', now);
+  assert.equal(axia.profile.sectorGroup, 'Elétricas');
+  assert.equal(irani.profile.sectorGroup, 'Commodities');
+});
+
 test('conflicting indicators are withheld; unsupported formats and ticker paths rejected', () => {
   assert.equal(parseAssetPage(fixture('<i data-indicator="LPA" data-current-value="99"></i>'), 'TEST3', 'stock', now).lpa, null);
   assert.equal(brNumber('2,63 Bilhões'), null);

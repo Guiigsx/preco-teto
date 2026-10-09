@@ -1,4 +1,5 @@
 const cheerio = require('cheerio');
+const { fetchQuote, mergeQuote } = require('./quoteService');
 
 const BASE_URL = 'https://investidor10.com.br';
 const cache = new Map();
@@ -88,9 +89,9 @@ function sectorGroup(sector, subsector, name, ticker = '') {
   const known = {
     BBAS: 'Bancos', ITUB: 'Bancos', BBDC: 'Bancos', SANB: 'Bancos', BPAC: 'Bancos', BRSR: 'Bancos',
     BBSE: 'Seguros', PSSA: 'Seguros', CXSE: 'Seguros',
-    CMIG: 'Elétricas', CPLE: 'Elétricas', TAEE: 'Elétricas', EGIE: 'Elétricas', CPFE: 'Elétricas', NEOE: 'Elétricas',
+    CMIG: 'Elétricas', CPLE: 'Elétricas', TAEE: 'Elétricas', EGIE: 'Elétricas', CPFE: 'Elétricas', NEOE: 'Elétricas', AXIA: 'Elétricas',
     SAPR: 'Saneamento', CSMG: 'Saneamento', SBSP: 'Saneamento',
-    PETR: 'Commodities', VALE: 'Commodities', CSNA: 'Commodities', GGBR: 'Commodities', USIM: 'Commodities', KLBN: 'Commodities', SUZB: 'Commodities',
+    PETR: 'Commodities', VALE: 'Commodities', CSNA: 'Commodities', GGBR: 'Commodities', USIM: 'Commodities', KLBN: 'Commodities', SUZB: 'Commodities', RANI: 'Commodities',
     ITSA: 'Bancos',
     WEGE: 'Indústria', POMO: 'Indústria', TUPY: 'Indústria',
     VIVT: 'Telecomunicações', TIMS: 'Telecomunicações', OIBR: 'Telecomunicações', TELB: 'Telecomunicações',
@@ -187,7 +188,6 @@ function parseAssetPage(html, ticker, type, now = new Date()) {
   }
   const priceCard = $('._card').filter((_, element) => normalizeLabel($(element).find('._card-header').text()).includes('COTACAO')).first();
   const currentPrice = brNumber(priceCard.find('._card-body .value').first().text());
-  if (!(currentPrice > 0)) throw new Error('Cotação indisponível na fonte. Tente novamente mais tarde.');
   const indicator = (label) => {
     const values = $('[data-indicator][data-current-value]').filter((_, element) => normalizeLabel($(element).attr('data-indicator')) === normalizeLabel(label))
       .map((_, element) => $(element).attr('data-current-value')).get();
@@ -296,13 +296,18 @@ async function fetchFairPriceAsset(rawTicker) {
   if (entry && Date.now() - entry.time < CACHE_TTL) return entry.data;
   if (inFlight.has(ticker)) return inFlight.get(ticker);
   const task = (async () => {
+    const quotePromise = fetchQuote(ticker).catch(() => null);
     const types = ticker.endsWith('11') ? ['fii', 'stock'] : ['stock', 'fii'];
     for (const type of types) {
       try {
         const data = await fetchAssetPage(ticker, type);
-        if (cache.size >= 250) cache.delete(cache.keys().next().value);
-        cache.set(ticker, { time: Date.now(), data });
-        return data;
+        const quote = await quotePromise;
+        const enriched = mergeQuote(data, quote);
+        if (quote) {
+          if (cache.size >= 250) cache.delete(cache.keys().next().value);
+          cache.set(ticker, { time: Date.now(), data: enriched });
+        }
+        return enriched;
       } catch {
         // Units ending in 11 must also be checked on the equities page.
       }
