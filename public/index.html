@@ -9,35 +9,42 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/prices.css?v=20260913-2" />
+  <link rel="stylesheet" href="/css/prices-layout.css?v=20261006-1" />
   <script defer src="/js/fair-price-model.js?v=20260913-2"></script>
-  <script defer src="/js/prices.js?v=20260913-2"></script>
+  <script defer src="/js/prices.js?v=20261007-2"></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Stock Teto, início"><span class="brand-mark"><img src="/icons/chart-no-axes-combined.svg" alt="" /></span><strong>Stock Teto</strong></a>
-    <span class="header-label">Preços justos</span>
+    <span id="sync-status" class="header-label" role="status">Consultando dados disponíveis</span>
   </header>
   <main class="shell">
-    <div class="page-heading"><h1>Meus ativos</h1><span id="asset-count" class="muted">0 ativos</span></div>
+    <div class="page-heading"><h1>Preços de compra</h1><span id="asset-count" class="count-summary">0 ativos</span></div>
     <form id="search-form" class="searchbar" autocomplete="off">
-      <div class="search-field"><img src="/icons/search.svg" alt="" /><label class="sr-only" for="ticker">Buscar por empresa ou ticker</label><input id="ticker" name="ticker" placeholder="Buscar empresa ou ticker. Ex.: Itaú, Petrobras, BBAS3" maxlength="80" spellcheck="false" autocapitalize="characters" autocomplete="off" aria-autocomplete="list" aria-controls="ticker-suggestions" required /><div id="ticker-suggestions" class="suggestions" role="listbox" hidden></div></div>
+      <div class="search-field"><img src="/icons/search.svg" alt="" /><label class="sr-only" for="ticker">Buscar por empresa ou ticker</label><input id="ticker" name="ticker" placeholder="Buscar empresa ou ticker" maxlength="80" spellcheck="false" autocapitalize="characters" autocomplete="off" aria-autocomplete="list" aria-controls="ticker-suggestions" required /><div id="ticker-suggestions" class="suggestions" role="listbox" hidden></div></div>
       <button id="add-button" class="button primary" type="submit" value="add"><img src="/icons/plus.svg" alt="" />Adicionar</button>
-      <button id="analyze-button" class="button secondary" type="submit" value="analyze"><img src="/icons/scan-search.svg" alt="" />Analisar</button>
+      <button id="analyze-button" class="button secondary search-analyze" type="submit" value="analyze" title="Analisar sem adicionar" aria-label="Analisar sem adicionar"><img src="/icons/scan-search.svg" alt="" /></button>
     </form>
     <p id="message" class="message" role="status" aria-live="polite" hidden></p>
-    <section class="asset-section" aria-labelledby="stocks-heading">
-      <div class="section-heading"><div class="class-title"><span class="class-line stock"></span><h2 id="stocks-heading">Ações</h2><span id="stock-count" class="count">0</span></div>
-        <div class="controls stock-controls"><span class="muted">Média dos métodos · compra com margem</span><div id="sector-filter" class="sector-filter" aria-label="Filtrar ações por setor"></div></div>
+    <div class="workspace-toolbar">
+      <div class="class-tabs" role="tablist" aria-label="Classe de ativo">
+        <button id="stock-tab" type="button" role="tab" data-tab="stock" aria-controls="stocks-section" aria-selected="true">Ações <span id="stock-count">0</span></button>
+        <button id="fii-tab" type="button" role="tab" data-tab="fii" aria-controls="fiis-section" aria-selected="false">FIIs <span id="fii-count">0</span></button>
       </div>
-      <div id="stocks-list"></div>
-    </section>
-    <section class="asset-section" aria-labelledby="fiis-heading">
-      <div class="section-heading"><div class="class-title"><span class="class-line fii"></span><h2 id="fiis-heading">FIIs</h2><span id="fii-count" class="count">0</span></div>
-        <div class="controls"><span class="muted">Renda normalizada + VPA + qualidade</span></div>
+      <div class="ranking-controls">
+        <details id="sector-control" class="filter-menu sector-menu"><summary><span class="filter-caption">Setor</span><strong id="sector-current">Todos</strong><img src="/icons/chevron-down.svg" alt="" /></summary><div id="sector-options" class="filter-options" role="group" aria-label="Filtrar ações por setor"></div></details>
+        <details id="sort-control" class="filter-menu sort-menu"><summary><span class="filter-caption">Ordenar</span><strong id="sort-current">Maior margem</strong><img src="/icons/chevron-down.svg" alt="" /></summary><div id="sort-options" class="filter-options" role="group" aria-label="Ordenar ranking"></div></details>
+        <button id="favorites-filter" type="button" class="favorite-toggle" aria-label="Mostrar somente favoritos" aria-pressed="false" title="Mostrar somente favoritos"><img src="/icons/star.svg" alt="" /></button>
       </div>
-      <div id="fiis-list"></div>
-    </section>
-    <footer><span>Lista salva neste navegador.</span><span id="sync-status" role="status">Atualização automática a cada minuto.</span></footer>
+    </div>
+    <div class="workspace-grid">
+      <div class="ranking-surface">
+        <section id="stocks-section" role="tabpanel" aria-labelledby="stock-tab"><h2 class="sr-only">Ranking de ações</h2><div id="stocks-list"></div></section>
+        <section id="fiis-section" role="tabpanel" aria-labelledby="fii-tab" hidden><h2 class="sr-only">Ranking de FIIs</h2><div id="fiis-list"></div></section>
+      </div>
+      <aside id="asset-insight" class="asset-insight" aria-label="Análise do ativo selecionado" aria-live="polite"></aside>
+    </div>
+    <footer><span>Lista salva neste navegador.</span><span>Preços de referência, não cotações em tempo real.</span></footer>
   </main>
   <dialog id="analysis-dialog" aria-labelledby="analysis-title">
     <div class="dialog-header"><span class="muted">Memorial de cálculo</span><button id="close-dialog" class="icon-button" aria-label="Fechar análise" title="Fechar análise"><img src="/icons/x.svg" alt="" /></button></div>

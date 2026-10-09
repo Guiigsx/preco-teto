@@ -5,7 +5,7 @@
       "src": "api/index.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": "{public/**,node_modules/lucide-static/icons/{chart-no-axes-combined,search,plus,scan-search,building-2,calculator,trash-2,x,check,layout-grid,landmark,shield-check,zap,droplets,factory,briefcase-business,layers,construction,shopping-bag,heart-pulse,cpu,radio-tower,circle-help,warehouse}.svg}"
+        "includeFiles": "{public/**,node_modules/lucide-static/icons/{chart-no-axes-combined,search,plus,scan-search,building-2,calculator,trash-2,x,check,layout-grid,landmark,shield-check,zap,droplets,factory,briefcase-business,layers,construction,shopping-bag,heart-pulse,cpu,radio-tower,circle-help,warehouse,star,arrow-right,chevron-down}.svg}"
       }
     }
   ],

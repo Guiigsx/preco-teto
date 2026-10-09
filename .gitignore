@@ -28,3 +28,4 @@ src/routes/portfolio.js
 src/routes/stocks.js
 src/services/portfolioService.js
 src/services/stockService.js
+.vercel

@@ -1,6 +1,9 @@
 'use strict';
 
 const STORAGE_KEY = 'stock-teto.fair-prices.v1';
+const SNAPSHOT_KEY = 'stock-teto.asset-snapshots.v1';
+const SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const SNAPSHOT_QUOTE_AGE_MS = 5 * 60 * 1000;
 const model = window.FairPriceModel;
 const $ = (id) => document.getElementById(id);
 const money = (value, digits = 2) => Number.isFinite(value)
@@ -8,7 +11,7 @@ const money = (value, digits = 2) => Number.isFinite(value)
 const percent = (value) => Number.isFinite(value) ? `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '—';
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const icon = (name) => `<img src="/icons/${name}.svg" alt="" />`;
-const defaults = () => ({ list: [], stockSector: 'all' });
+const defaults = () => ({ list: [], stockSector: 'all', favorites: [], sortOrder: 'margin' });
 const STOCK_CONFIG = { method: 'buy', bazinYield: 10, gordonReturn: 12 };
 const FII_CONFIG = { method: 'fiiReference', requiredReturn: 10 };
 const methodNames = { buy: 'Compra', bazin: 'Bazin 10%', graham: 'Graham', gordon: 'Gordon', best: 'Maior margem', fiiReference: 'VR renda + VPA' };
@@ -42,6 +45,7 @@ const SEARCH_UNIVERSE = [
   { company: 'Copel', sector: 'Elétricas', tickers: ['CPLE3', 'CPLE5', 'CPLE6', 'CPLE11'], aliases: ['companhia paranaense energia'] },
   { company: 'CPFL Energia', sector: 'Elétricas', tickers: ['CPFE3'], aliases: ['cpfl'] },
   { company: 'Engie Brasil', sector: 'Elétricas', tickers: ['EGIE3'], aliases: ['engie'] },
+  { company: 'Axia Energia', sector: 'Elétricas', tickers: ['AXIA3'], aliases: ['axia', 'eletrobras'] },
   { company: 'Sabesp', sector: 'Saneamento', tickers: ['SBSP3'], aliases: ['saneamento basico sao paulo'] },
   { company: 'Sanepar', sector: 'Saneamento', tickers: ['SAPR3', 'SAPR4', 'SAPR11'], aliases: ['parana saneamento'] },
   { company: 'Copasa', sector: 'Saneamento', tickers: ['CSMG3'], aliases: ['minas saneamento'] },
@@ -52,6 +56,7 @@ const SEARCH_UNIVERSE = [
   { company: 'Usiminas', sector: 'Commodities', tickers: ['USIM3', 'USIM5'], aliases: ['usinas siderurgicas minas gerais'] },
   { company: 'Klabin', sector: 'Commodities', tickers: ['KLBN3', 'KLBN4', 'KLBN11'], aliases: ['papel celulose'] },
   { company: 'Suzano', sector: 'Commodities', tickers: ['SUZB3'], aliases: ['celulose'] },
+  { company: 'Irani', sector: 'Commodities', tickers: ['RANI3'], aliases: ['irani papel', 'embalagens'] },
   { company: 'WEG', sector: 'Indústria', tickers: ['WEGE3'], aliases: ['weg equipamentos'] },
   { company: 'Marcopolo', sector: 'Indústria', tickers: ['POMO3', 'POMO4'], aliases: ['ônibus', 'onibus'] },
   { company: 'Tupy', sector: 'Indústria', tickers: ['TUPY3'], aliases: ['fundição', 'fundicao'] },
@@ -100,11 +105,6 @@ function sectorIcon(sector) {
   return `<span class="sector-dot" style="--sector-color:${meta.color}">${icon(meta.icon)}</span>`;
 }
 
-function sectorPill(sector) {
-  const canonical = canonicalSector(sector);
-  const meta = sectorMeta(canonical);
-  return `<span class="sector-pill" title="${escape(meta.legend)}" style="--sector-color:${meta.color}">${icon(meta.icon)}${escape(canonical)}</span>`;
-}
 
 function tickerSearchValue(value) {
   return String(value || '').trim().toUpperCase().replace(/\.SA$/, '');
@@ -134,7 +134,9 @@ function readSaved() {
     const list = raw.list.filter((row) => row && /^[A-Z]{4}\d{1,2}$/.test(row.ticker) && ['stock', 'fii'].includes(row.type) && !seen.has(row.ticker) && seen.add(row.ticker))
       .slice(0, 50).map(({ ticker, type }) => ({ ticker, type }));
     const stockSector = typeof raw.stockSector === 'string' ? canonicalSector(raw.stockSector) : 'all';
-    return { list, stockSector };
+    const favorites = Array.isArray(raw.favorites) ? raw.favorites.filter((ticker) => list.some((row) => row.ticker === ticker)) : [];
+    const sortOrder = ['margin', 'ticker', 'price', 'reference'].includes(raw.sortOrder) ? raw.sortOrder : 'margin';
+    return { list, stockSector, favorites, sortOrder };
   } catch { return defaults(); }
 }
 
@@ -143,6 +145,9 @@ const assets = new Map();
 let preview = null;
 let searchBusy = false;
 let refreshBusy = false;
+let activeType = 'stock';
+let selectedTicker = null;
+let favoriteOnly = false;
 const requests = new Map();
 
 function notify(text, error = false) {
@@ -159,6 +164,49 @@ function persist() {
   }
 }
 
+function readSnapshots() {
+  try {
+    const value = JSON.parse(localStorage.getItem(SNAPSHOT_KEY));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch { return {}; }
+}
+
+function cacheAsset(asset) {
+  if (!asset || asset.error) return;
+  try {
+    const snapshots = readSnapshots();
+    const tickers = new Set(settings.list.map((item) => item.ticker));
+    for (const ticker of Object.keys(snapshots)) if (!tickers.has(ticker)) delete snapshots[ticker];
+    snapshots[asset.ticker] = { savedAt: Date.now(), data: asset };
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots));
+  } catch {
+    // Cached data is optional; the live request remains the source of truth.
+  }
+}
+
+function hydrateCachedAssets() {
+  const snapshots = readSnapshots();
+  const now = Date.now();
+  let count = 0;
+  for (const entry of settings.list) {
+    const snapshot = snapshots[entry.ticker];
+    const age = now - snapshot?.savedAt;
+    const asset = snapshot?.data;
+    if (!Number.isFinite(age) || age < 0 || age > SNAPSHOT_MAX_AGE_MS || asset?.ticker !== entry.ticker || asset.type !== entry.type) continue;
+    assets.set(entry.ticker, age <= SNAPSHOT_QUOTE_AGE_MS ? asset : {
+      ...asset,
+      currentPrice: null,
+      sourceDate: null,
+      quoteSource: null,
+      quoteSourceUrl: null,
+      quoteProvider: null,
+      quoteStatus: 'cached_expired',
+    });
+    count += 1;
+  }
+  return count;
+}
+
 function applySettings() {
   settings.stockSector = canonicalSector(settings.stockSector);
 }
@@ -168,16 +216,6 @@ function logo(asset) {
   return `<span class="logo"><span>${escape(asset.ticker.slice(0, 2))}</span>${url ? `<img src="${escape(url)}" alt="" loading="lazy" />` : ''}</span>`;
 }
 
-function priceCell(value, selected, reason, label) {
-  return `<td data-label="${label}" class="${Number.isFinite(value) ? selected ? 'price-selected' : '' : 'unavailable'}"${!Number.isFinite(value) ? ` title="${escape(reason)}"` : ''}>${money(value)}</td>`;
-}
-
-function compactRisks(risks, limit = 2) {
-  const clean = Array.isArray(risks) ? risks.filter(Boolean) : [];
-  if (!clean.length) return 'Sem risco crítico capturado';
-  const visible = clean.slice(0, limit).join('; ');
-  return clean.length > limit ? `${visible}; +${clean.length - limit}` : visible;
-}
 
 function qualityBadge(score) {
   if (!Number.isFinite(score)) return '<span class="quality-badge neutral">—</span>';
@@ -185,12 +223,6 @@ function qualityBadge(score) {
   return `<span class="quality-badge ${level}">${score.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>`;
 }
 
-function classificationClass(label) {
-  if (/boa qualidade/i.test(label)) return 'good';
-  if (/justo/i.test(label)) return 'neutral';
-  if (/riscos/i.test(label)) return 'warn';
-  return 'bad';
-}
 
 function metricValue(value, kind = 'number') {
   if (value === null || value === undefined || value === '') return '—';
@@ -255,27 +287,40 @@ function stockSector(asset) {
 }
 
 function renderSectorFilter() {
-  const filter = $('sector-filter');
-  if (!filter) return;
-  const current = settings.stockSector || 'all';
   const counts = new Map();
   for (const item of settings.list) {
     const asset = assets.get(item.ticker);
-    if (asset?.type === 'stock') {
-      const sector = stockSector(asset);
+    if (item.type === 'stock') {
+      const sector = stockSector(asset || item);
       counts.set(sector, (counts.get(sector) || 0) + 1);
     }
   }
-  const valid = current === 'all' || DEFAULT_SECTORS.includes(current);
-  if (!valid) settings.stockSector = 'all';
-  const allCount = [...counts.values()].reduce((sum, value) => sum + value, 0);
-  const buttons = [
-    { id: 'all', label: 'Todos', count: allCount, icon: 'layout-grid', color: '#101318', legend: 'Todos os setores' },
-    ...DEFAULT_SECTORS.map((sector) => ({ id: sector, label: sector, count: counts.get(sector) || 0, ...sectorMeta(sector) })),
+  if (settings.stockSector !== 'all' && !counts.has(settings.stockSector)) settings.stockSector = 'all';
+  $('sector-current').textContent = settings.stockSector === 'all' ? 'Todos' : settings.stockSector;
+  $('sector-options').innerHTML = ['all', ...DEFAULT_SECTORS.filter((sector) => counts.has(sector))].map((sector) => {
+    const selected = settings.stockSector === sector;
+    const label = sector === 'all' ? 'Todos os setores' : sector;
+    return `<button type="button" class="filter-option ${selected ? 'selected' : ''}" data-sector="${escape(sector)}" aria-pressed="${selected}">${sector === 'all' ? '<span class="sector-dot all-sectors">' + icon('layout-grid') + '</span>' : sectorIcon(sector)}<span>${escape(label)}</span>${sector === 'all' ? '' : `<small>${counts.get(sector)}</small>`}${selected ? icon('check') : ''}</button>`;
+  }).join('');
+}
+
+function renderSortFilter() {
+  const options = [
+    ['margin', 'Maior margem'],
+    ['ticker', 'Ativo A–Z'],
+    ['price', 'Menor cotação'],
+    ['reference', activeType === 'stock' ? 'Menor preço de compra' : 'Menor valor de referência'],
   ];
-  filter.innerHTML = buttons.map((item) => `<button type="button" class="sector-button ${settings.stockSector === item.id ? 'active' : ''}" data-sector-filter="${escape(item.id)}" data-tooltip="${escape(item.legend)}" aria-pressed="${settings.stockSector === item.id}" title="${escape(item.legend)}" style="--sector-color:${item.color}">
-    ${icon(item.icon)}<span>${escape(item.label)}</span>${item.count ? `<small>${item.count}</small>` : ''}
-  </button>`).join('');
+  $('sort-current').textContent = options.find(([value]) => value === settings.sortOrder)?.[1] || options[0][1];
+  $('sort-options').innerHTML = options.map(([value, label]) => {
+    const selected = settings.sortOrder === value;
+    return `<button type="button" class="filter-option ${selected ? 'selected' : ''}" data-sort="${value}" aria-pressed="${selected}"><span>${escape(label)}</span>${selected ? icon('check') : ''}</button>`;
+  }).join('');
+}
+
+function closeFilters() {
+  $('sector-control').open = false;
+  $('sort-control').open = false;
 }
 
 function renderMetricHistory(button) {
@@ -295,16 +340,6 @@ function renderMetricHistory(button) {
   target.hidden = false;
 }
 
-function renderFiiGroups(ranked) {
-  const labels = ['Possivelmente descontado e de boa qualidade', 'Preço próximo do justo', 'Barato, mas com riscos relevantes', 'Possivelmente caro'];
-  const groups = new Map(labels.map((label) => [label, []]));
-  for (const asset of ranked) {
-    const label = asset.valuation?.fii?.classification || 'Sem dados suficientes';
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label).push(asset);
-  }
-  return `<div class="fii-groups">${[...groups.entries()].map(([label, items]) => `<section class="fii-group ${classificationClass(label)}"><h3>${escape(label)}</h3><p>${items.length ? items.map((item) => item.ticker).join(', ') : 'Nenhum fundo'}</p></section>`).join('')}</div>`;
-}
 
 function fiiAnalysisSections(asset, valuation, history) {
   const fii = valuation.fii || {};
@@ -326,61 +361,133 @@ function fiiAnalysisSections(asset, valuation, history) {
     <p>Classificação: <b>${escape(fii.classification || 'Sem dados suficientes')}</b>. O fundo só entra como candidato quando desconto é positivo e nota de qualidade é pelo menos 7.</p></section>`;
 }
 
-function renderClass(type) {
-  const isStock = type === 'stock';
-  const fullList = settings.list.filter((item) => item.type === type).map((item) => assets.get(item.ticker) || { ...item, loading: true });
-  const list = isStock && settings.stockSector !== 'all'
-    ? fullList.filter((asset) => stockSector(asset) === settings.stockSector) : fullList;
-  const ranked = model.rank(list, isStock ? STOCK_CONFIG : FII_CONFIG);
-  $(isStock ? 'stock-count' : 'fii-count').textContent = isStock && list.length !== fullList.length ? `${list.length}/${fullList.length}` : list.length;
-  const target = $(isStock ? 'stocks-list' : 'fiis-list');
-  if (!list.length) {
-    target.innerHTML = `<div class="empty">${icon(isStock ? 'chart-no-axes-combined' : 'building-2')}<p>${isStock ? 'Nenhuma ação nesse setor.' : 'Nenhum FII adicionado.'}</p></div>`;
+
+function referencePrice(asset) {
+  const value = asset.type === 'stock' ? asset.valuation?.buyPrice : asset.valuation?.fii?.referenceValue;
+  return Number.isFinite(value) && value > 0 && !asset.error && (asset.type !== 'fii' || Number.isFinite(FII_CONFIG.requiredReturn)) ? value : null;
+}
+
+function recentQuote(asset) {
+  if (!Number.isFinite(asset.currentPrice) || asset.currentPrice <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(asset.sourceDate || '')) return false;
+  const age = Date.now() - new Date(asset.sourceDate + 'T12:00:00Z').getTime();
+  return age >= -86_400_000 && age <= 7 * 86_400_000;
+}
+
+function assetMargin(asset) {
+  return referencePrice(asset) === null || !recentQuote(asset) ? null : Number.isFinite(asset.valuation?.margin) ? asset.valuation.margin : null;
+}
+
+function assetStatus(asset) {
+  const margin = assetMargin(asset);
+  if (margin === null) return { text: asset.loading ? 'Consultando' : !recentQuote(asset) ? 'Cotação indisponível' : 'Sem dados', className: 'neutral' };
+  if (asset.type === 'fii') {
+    if (margin > 5) return { text: 'Desconto, avaliar', className: 'positive' };
+    if (margin >= -5) return { text: 'Próximo do justo', className: 'neutral' };
+    return { text: 'Acima do valor', className: 'negative' };
+  }
+  return margin >= 0 ? { text: 'Dentro do preço', className: 'positive' } : { text: 'Acima do preço', className: 'negative' };
+}
+
+function quoteDate(asset) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(asset.sourceDate || '') ? asset.sourceDate.split('-').reverse().join('/') : 'data indisponível';
+}
+
+function sortedAssets(type) {
+  const list = settings.list.filter((item) => item.type === type)
+    .map((item) => assets.get(item.ticker) || { ...item, loading: true })
+    .filter((asset) => type !== 'stock' || settings.stockSector === 'all' || stockSector(asset) === settings.stockSector)
+    .filter((asset) => !favoriteOnly || settings.favorites.includes(asset.ticker));
+  const ranked = model.rank(list, type === 'stock' ? STOCK_CONFIG : FII_CONFIG);
+  if (settings.sortOrder === 'ticker') ranked.sort((a, b) => a.ticker.localeCompare(b.ticker));
+  if (settings.sortOrder === 'price') ranked.sort((a, b) => (a.currentPrice ?? Infinity) - (b.currentPrice ?? Infinity));
+  if (settings.sortOrder === 'reference') ranked.sort((a, b) => (referencePrice(a) ?? Infinity) - (referencePrice(b) ?? Infinity));
+  return ranked;
+}
+
+function renderClassCompact(type) {
+  const ranked = sortedAssets(type);
+  const target = $(type === 'stock' ? 'stocks-list' : 'fiis-list');
+  if (type === activeType && !ranked.some((asset) => asset.ticker === selectedTicker)) selectedTicker = ranked[0]?.ticker || null;
+  if (!ranked.length) {
+    const message = favoriteOnly ? 'Nenhum favorito nesta lista.' : type === 'stock' && settings.stockSector !== 'all' ? 'Nenhuma ação neste setor.' : type === 'stock' ? 'Nenhuma ação adicionada.' : 'Nenhum FII adicionado.';
+    target.innerHTML = `<div class="empty compact-empty">${icon(type === 'stock' ? 'chart-no-axes-combined' : 'building-2')}<p>${message}</p></div>`;
     return;
   }
-  const visible = isStock ? ranked.slice(0, stockVisibleCount) : ranked;
-  let place = 0;
-  if (!isStock) {
-    target.innerHTML = `<div class="table-scroll" tabindex="0" role="region" aria-label="Ranking de FIIs"><table class="asset-table fii-table">
-    <thead><tr><th scope="col">FII</th><th scope="col">Preço atual</th><th scope="col">Div. norm.</th><th scope="col">DY norm.</th><th scope="col">VPA</th><th scope="col">P/VP</th><th scope="col">Preço renda</th><th scope="col">VR</th><th scope="col" aria-sort="descending">Desconto ↓</th><th scope="col">Nota</th><th scope="col">Principais riscos</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
+  const visible = type === 'stock' ? ranked.slice(0, stockVisibleCount) : ranked;
+  target.innerHTML = `<div class="table-scroll" tabindex="0" role="region" aria-label="Ranking de ${type === 'stock' ? 'ações' : 'FIIs'}"><table class="asset-table compact-table">
+    <thead><tr><th scope="col">Ativo</th><th scope="col">Cotação</th><th scope="col">${type === 'stock' ? 'Preço de compra' : 'Valor de referência'}</th><th scope="col">${type === 'stock' ? 'Margem' : 'Desconto'}</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
     <tbody>${visible.map((asset) => {
-      const fii = asset.valuation.fii || {};
-      const rowLabel = asset.loading ? 'Consultando…' : asset.error ? 'Consulta indisponível' : asset.name;
-      return `<tr class="${asset.error ? 'error-row' : ''}"><td class="identity-cell"><div class="asset-name"><span class="rank">${Number.isFinite(fii.discount) ? ++place : '—'}</span>${logo(asset)}<button class="asset-link" data-action="analyze" data-ticker="${asset.ticker}">${asset.ticker}<small title="${escape(rowLabel)}">${escape(rowLabel)}</small></button></div></td>
-      <td data-label="Preço atual">${money(asset.currentPrice)}</td>
-      <td data-label="Dividendo normalizado">${money(fii.normalizedMonthlyDividend, 4)}</td>
-      <td data-label="DY normalizado">${percent(fii.normalizedDy)}</td>
-      <td data-label="VPA">${money(fii.vpa)}</td>
-      <td data-label="P/VP">${Number.isFinite(fii.pvp) ? fii.pvp.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
-      <td data-label="Preço pela renda">${money(fii.incomePrice)}</td>
-      <td data-label="Valor de referência" class="price-selected">${money(fii.referenceValue)}</td>
-      <td data-label="Desconto estimado">${Number.isFinite(fii.discount) ? `<span class="margin ${fii.discount < 0 ? 'negative' : ''}">${percent(fii.discount)}<small>${escape(methodNames[asset.valuation.selectedMethod])}</small></span>` : '<span class="unavailable">—</span>'}</td>
-      <td data-label="Nota de qualidade">${qualityBadge(fii.qualityScore)}<small class="table-note">${escape(fii.classification || '')}</small></td>
-      <td data-label="Principais riscos"><span class="risk-text" title="${escape((fii.risks || []).join('; '))}">${escape(compactRisks(fii.risks))}</span></td>
-      <td class="actions-cell"><div class="row-actions"><button class="icon-button" data-action="analyze" data-ticker="${asset.ticker}" title="Ver cálculo de ${asset.ticker}" aria-label="Ver cálculo de ${asset.ticker}">${icon('calculator')}</button><button class="icon-button remove" data-action="remove" data-ticker="${asset.ticker}" title="Remover ${asset.ticker}" aria-label="Remover ${asset.ticker}">${icon('trash-2')}</button></div></td></tr>`;
-    }).join('')}</tbody></table></div>${renderFiiGroups(ranked)}`;
+      const margin = assetMargin(asset);
+      const status = assetStatus(asset);
+      const label = asset.loading ? 'Consultando…' : asset.error ? 'Consulta indisponível' : asset.name || asset.ticker;
+      const favorite = settings.favorites.includes(asset.ticker);
+      return `<tr class="${asset.ticker === selectedTicker && type === activeType ? 'selected-row' : ''}" data-row-ticker="${escape(asset.ticker)}"><td class="identity-cell"><div class="asset-name">${logo(asset)}<button class="asset-link" type="button" data-action="select" data-ticker="${escape(asset.ticker)}" aria-label="Selecionar ${escape(asset.ticker)}">${escape(asset.ticker)}<small title="${escape(label)}">${escape(label)}</small></button></div></td>
+        <td data-label="Cotação"><span class="cell-value">${money(recentQuote(asset) ? asset.currentPrice : null)}</span>${Number.isFinite(asset.currentPrice) ? `<small class="quote-date">${escape(quoteDate(asset))}</small>` : ''}</td>
+        <td data-label="${type === 'stock' ? 'Preço de compra' : 'Valor de referência'}" class="price-selected">${money(referencePrice(asset))}</td>
+        <td data-label="${type === 'stock' ? 'Margem' : 'Desconto'}" class="${margin === null ? '' : margin >= 0 ? 'positive-text' : 'negative-text'}">${percent(margin)}</td>
+        <td data-label="Situação"><span class="status-pill ${status.className}">${status.text}</span></td>
+        <td class="actions-cell"><div class="row-actions"><button class="icon-button favorite-button ${favorite ? 'active' : ''}" type="button" data-action="favorite" data-ticker="${escape(asset.ticker)}" aria-pressed="${favorite}" title="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}" aria-label="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}">${icon('star')}</button><button class="icon-button remove" type="button" data-action="remove" data-ticker="${escape(asset.ticker)}" title="Remover ${escape(asset.ticker)}" aria-label="Remover ${escape(asset.ticker)}">${icon('trash-2')}</button></div></td></tr>`;
+    }).join('')}</tbody></table></div>${type === 'stock' && ranked.length > visible.length ? `<div class="show-more-row"><button class="button secondary" type="button" data-action="show-more-stocks">Mostrar mais ${Math.min(STOCK_PAGE_SIZE, ranked.length - visible.length)}</button></div>` : ''}`;
+}
+
+function methodLine(label, value, maximum) {
+  const width = Number.isFinite(value) && maximum > 0 ? Math.max(4, value / maximum * 100) : 0;
+  return `<div class="method-line"><span>${label}</span><div class="method-track"><i style="width:${width}%"></i></div><strong>${money(value)}</strong></div>`;
+}
+
+function renderInsight() {
+  const panel = $('asset-insight');
+  const asset = assets.get(selectedTicker);
+  if (!selectedTicker) {
+    panel.innerHTML = `<div class="insight-empty">${icon('scan-search')}<h2>Nenhum ativo selecionado</h2></div>`;
     return;
   }
-  target.innerHTML = `<div class="table-scroll" tabindex="0" role="region" aria-label="Ranking de ações"><table class="asset-table">
-    <thead><tr><th scope="col">Ativo</th><th scope="col">Setor</th><th scope="col">Cotação</th><th scope="col">Bazin · 10%</th><th scope="col">Graham</th><th scope="col">Gordon</th><th scope="col">Média</th><th scope="col">Preço de compra</th><th scope="col" aria-sort="descending" title="1 − cotação ÷ preço de compra">Margem ↓</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
-    <tbody>${visible.map((asset) => {
-      const { bazin, graham, gordon, fairAverage, buyPrice, margin, selectedMethod } = asset.valuation;
-      const unavailableReason = asset.error || asset.dividends?.reason || 'Sem base de proventos para o cálculo.';
-      const gordonReason = asset.error || asset.dividends?.reason || 'Gordon exige histórico completo de proventos e crescimento válido.';
-      const rowLabel = asset.loading ? 'Consultando…' : asset.error ? 'Consulta indisponível' : asset.name;
-      return `<tr class="${asset.error ? 'error-row' : ''}"><td class="identity-cell"><div class="asset-name"><span class="rank">${Number.isFinite(margin) ? ++place : '—'}</span>${logo(asset)}<button class="asset-link" data-action="analyze" data-ticker="${asset.ticker}">${asset.ticker}<small title="${escape(rowLabel)}">${escape(rowLabel)}</small></button></div></td>
-      ${isStock ? `<td data-label="Setor">${sectorPill(stockSector(asset))}</td>` : ''}<td data-label="Cotação">${money(asset.currentPrice)}</td>${priceCell(bazin, selectedMethod === 'bazin', unavailableReason, 'Bazin · 10%')}${isStock ? `${priceCell(graham, false, 'LPA e VPA positivos são necessários.', 'Graham')}${priceCell(gordon, false, gordonReason, 'Gordon')}${priceCell(fairAverage, false, 'Nenhum preço teto válido.', 'Média')}${priceCell(buyPrice, true, 'Nenhum preço teto válido.', 'Preço de compra')}` : ''}
-      <td data-label="Margem de segurança">${Number.isFinite(margin) ? `<span class="margin ${margin < 0 ? 'negative' : ''}">${percent(margin)}<small>${escape(methodNames[selectedMethod] || selectedMethod)}</small></span>` : `<span class="unavailable" title="${escape(asset.error || 'Sem dados para o método selecionado.')}">—</span>`}</td>
-      <td class="actions-cell"><div class="row-actions"><button class="icon-button" data-action="analyze" data-ticker="${asset.ticker}" title="Ver cálculo de ${asset.ticker}" aria-label="Ver cálculo de ${asset.ticker}">${icon('calculator')}</button><button class="icon-button remove" data-action="remove" data-ticker="${asset.ticker}" title="Remover ${asset.ticker}" aria-label="Remover ${asset.ticker}">${icon('trash-2')}</button></div></td></tr>`;
-    }).join('')}</tbody></table></div>${isStock && ranked.length > visible.length ? `<div class="show-more-row"><button class="button secondary" type="button" data-action="show-more-stocks">Mostrar mais ${Math.min(STOCK_PAGE_SIZE, ranked.length - visible.length)}</button></div>` : ''}`;
+  if (!asset || asset.loading || asset.error) {
+    panel.innerHTML = `<div class="insight-empty">${icon(asset?.error ? 'circle-help' : 'scan-search')}<h2>${escape(selectedTicker)}</h2><p>${escape(asset?.error || 'Consultando dados do ativo…')}</p></div>`;
+    return;
+  }
+  const valuation = model.evaluate(asset, asset.type === 'stock' ? STOCK_CONFIG : FII_CONFIG);
+  const view = { ...asset, valuation };
+  const reference = referencePrice(view);
+  const margin = assetMargin(view);
+  const status = assetStatus(view);
+  const sector = asset.type === 'stock' ? stockSector(asset) : asset.fundamentals?.segment || 'FII';
+  const control = asset.type === 'stock' ? (asset.profile?.controlType === 'state' ? 'Estatal' : 'Privada') : asset.fundamentals?.fundType || 'Fundo imobiliário';
+  const source = /^https:\/\/investidor10\.com\.br\//.test(asset.source || '') ? asset.source : null;
+  const quoteSource = asset.quoteSourceUrl === 'https://stock-teto-api.vercel.app/docs' ? asset.quoteSourceUrl : null;
+  const methods = [valuation.bazin, valuation.graham, valuation.gordon].filter(Number.isFinite);
+  const maximum = Math.max(...methods, 0);
+  const fii = valuation.fii || {};
+  const fiiIncomePrice = reference === null ? null : fii.incomePrice;
+  const fiiMaximum = Math.max(fiiIncomePrice || 0, fii.vpa || 0);
+  panel.innerHTML = `<div class="insight-heading">${logo(asset)}<div><h2>${escape(asset.ticker)}</h2><strong>${escape(asset.name || asset.ticker)}</strong><small>${escape(sector)} · ${escape(control)}</small></div></div>
+    <div class="insight-source">${recentQuote(asset) ? `Cotação de ${escape(quoteDate(asset))}` : 'Cotação indisponível'} · ${quoteSource ? `<a href="${quoteSource}" target="_blank" rel="noopener noreferrer">Stock Teto API</a>` : 'API indisponível'}${source ? ` · <a href="${escape(source)}" target="_blank" rel="noopener noreferrer">Fundamentos</a>` : ''}</div>
+    <div class="insight-primary"><div><small>${asset.type === 'stock' ? 'Preço de compra' : 'Valor de referência'}</small><strong>${money(reference)}</strong></div><div><small>${asset.type === 'stock' ? 'Margem de segurança' : 'Desconto estimado'}</small><strong class="${margin === null ? '' : margin >= 0 ? 'positive-text' : 'negative-text'}">${percent(margin)}</strong></div></div>
+    <div class="insight-status"><span class="status-pill ${status.className}">${status.text}</span><span>Cotação ${money(recentQuote(asset) ? asset.currentPrice : null)}</span></div>
+    ${asset.type === 'stock'
+      ? `<section class="insight-methods"><h3>Preços por método</h3>${methodLine('Bazin 10%', valuation.bazin, maximum)}${methodLine('Graham', valuation.graham, maximum)}${methodLine('Gordon', valuation.gordon, maximum)}</section><div class="insight-breakdown"><span>Média <strong>${money(valuation.fairAverage)}</strong></span><span>Margem aplicada <strong>${percent(valuation.safetyMargin)}</strong></span></div>`
+      : `<section class="insight-methods"><h3>Renda e patrimônio</h3>${methodLine('Pela renda', fiiIncomePrice, fiiMaximum)}${methodLine('VPA', fii.vpa, fiiMaximum)}</section><div class="insight-breakdown"><span>Div. normalizado <strong>${money(fii.normalizedMonthlyDividend, 4)}</strong></span><span>DY normalizado <strong>${percent(fii.normalizedDy)}</strong></span><span>P/VP <strong>${Number.isFinite(fii.pvp) ? fii.pvp.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'}</strong></span><span>Nota indicativa <strong>${Number.isFinite(fii.qualityScore) ? fii.qualityScore.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—'}</strong></span></div><p class="insight-caution">Qualidade requer verificar imóveis, contratos e concentração.${reference === null ? ' Taxa mínima indisponível.' : ''}</p>`}
+    <button class="insight-detail" type="button" data-action="analyze" data-ticker="${escape(asset.ticker)}">Ver memória de cálculo ${icon('arrow-right')}</button>`;
 }
 
 function render() {
   const count = settings.list.length;
+  document.querySelector('.workspace-grid').classList.toggle('is-empty', count === 0);
+  if (!count) $('sync-status').textContent = 'Sem consultas';
   $('asset-count').textContent = `${count} ${count === 1 ? 'ativo' : 'ativos'}`;
+  $('stock-count').textContent = settings.list.filter((item) => item.type === 'stock').length;
+  $('fii-count').textContent = settings.list.filter((item) => item.type === 'fii').length;
+  for (const type of ['stock', 'fii']) {
+    $(type + '-tab').setAttribute('aria-selected', String(activeType === type));
+    $(type === 'stock' ? 'stocks-section' : 'fiis-section').hidden = activeType !== type;
+  }
+  $('sector-control').hidden = activeType !== 'stock';
+  $('favorites-filter').setAttribute('aria-pressed', String(favoriteOnly));
   renderSectorFilter();
-  renderClass('stock');
-  renderClass('fii');
+  renderSortFilter();
+  renderClassCompact('stock');
+  renderClassCompact('fii');
+  renderInsight();
 }
 
 function showAnalysis(asset) {
@@ -391,6 +498,7 @@ function showAnalysis(asset) {
   const history = asset.dividends;
   const saved = settings.list.some((item) => item.ticker === asset.ticker);
   const sourceDate = asset.sourceDate ? asset.sourceDate.split('-').reverse().join('/') : null;
+  const quoteSource = asset.quoteSourceUrl === 'https://stock-teto-api.vercel.app/docs' ? asset.quoteSourceUrl : null;
   const consulted = new Date(asset.consultedAt).toLocaleString('pt-BR');
   const profile = asset.profile || {};
   const profileBody = asset.type === 'stock' ? `<section class="company-brief"><p>${escape(profile.description || 'Descrição breve indisponível na fonte.')}</p><div><span>${escape(stockSector(asset))}</span><span>${escape(profile.subsector || profile.sector || 'Setor indisponível')}</span><span>${profile.controlType === 'state' ? 'Estatal · margem 20%' : 'Privada · margem 15%'}</span></div></section>` : '';
@@ -414,7 +522,7 @@ function showAnalysis(asset) {
   const fiiAnalysisBody = asset.type === 'fii' ? `${fundamentalsGrid(asset)}${fiiAnalysisSections(asset, valuation, history)}` : '';
   $('analysis-content').innerHTML = `<div class="dialog-title">${logo(asset)}<div><h2 id="analysis-title">${asset.ticker}</h2><p>${escape(asset.name)} · ${asset.type === 'fii' ? 'FII' : 'Ação'}</p></div><div class="dialog-quote"><small>Cotação${sourceDate ? ` · ${sourceDate}` : ''}</small><strong>${money(asset.currentPrice)}</strong></div></div>
     ${stockAnalysisBody}${fiiAnalysisBody}
-    <div class="dialog-bottom"><div class="source"><a href="${escape(asset.source)}" target="_blank" rel="noopener noreferrer">Fonte: Investidor10 ↗</a><br>Consulta: ${escape(consulted)}</div><button class="button ${saved ? 'secondary' : 'primary'}" id="dialog-add" ${saved ? 'disabled' : ''}>${icon(saved ? 'check' : 'plus')}${saved ? 'Adicionado' : 'Adicionar ativo'}</button></div>
+    <div class="dialog-bottom"><div class="source">Cotação: ${quoteSource ? `<a href="${quoteSource}" target="_blank" rel="noopener noreferrer">Stock Teto API ↗</a>` : 'indisponível'}<br><a href="${escape(asset.source)}" target="_blank" rel="noopener noreferrer">Fundamentos: Investidor10 ↗</a><br>Consulta: ${escape(consulted)}</div><button class="button ${saved ? 'secondary' : 'primary'}" id="dialog-add" ${saved ? 'disabled' : ''}>${icon(saved ? 'check' : 'plus')}${saved ? 'Adicionado' : 'Adicionar ativo'}</button></div>
     <p class="dialog-note">Estimativas por fórmula. Histórico de proventos não garante pagamentos futuros.${asset.type === 'fii' ? ' Em FIIs de papel, valide CRIs, garantias, LTV, duration e indexadores antes de concluir.' : ' Compare os métodos: cada ação pode pedir uma régua diferente.'}</p>`;
   $('dialog-add').addEventListener('click', () => { addAsset(asset); showAnalysis(asset); });
   if (!$('analysis-dialog').open) $('analysis-dialog').showModal();
@@ -472,9 +580,17 @@ function addAsset(asset) {
   if (settings.list.length >= 50) { notify('Limite de 50 ativos. Remova um ativo antes de adicionar outro.', true); return; }
   settings.list.push({ ticker: asset.ticker, type: asset.type });
   assets.set(asset.ticker, asset);
+  cacheAsset(asset);
+  activeType = asset.type;
+  selectedTicker = asset.ticker;
+  favoriteOnly = false;
+  if (asset.type === 'stock') settings.stockSector = 'all';
   const saved = persist();
   render();
-  if (saved) notify(`${asset.ticker} adicionado.`);
+  if (saved) {
+    $('sync-status').textContent = `Última consulta às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · a cada minuto`;
+    notify(`${asset.ticker} adicionado.`);
+  }
 }
 
 async function search(value, action = 'analyze') {
@@ -489,7 +605,7 @@ async function search(value, action = 'analyze') {
   notify(`Consultando ${ticker}…`);
   try {
     const asset = await requestAsset(ticker);
-    if (settings.list.some((item) => item.ticker === ticker)) { assets.set(ticker, asset); render(); }
+    if (settings.list.some((item) => item.ticker === ticker)) { assets.set(ticker, asset); cacheAsset(asset); render(); }
     if (action === 'add') { addAsset(asset); $('ticker').value = ''; hideSuggestions(); }
     else { notify(''); showAnalysis(asset); }
   } catch (error) { notify(error.name === 'TimeoutError' ? 'A consulta demorou mais que o esperado. Tente novamente.' : error.message, true); }
@@ -504,8 +620,10 @@ async function search(value, action = 'analyze') {
 async function refreshSaved() {
   if (refreshBusy || document.hidden || !settings.list.length) return;
   refreshBusy = true;
-  $('sync-status').textContent = 'Consultando dados…';
   const queue = [...settings.list];
+  const total = queue.length;
+  let completed = 0;
+  $('sync-status').textContent = queue.some((item) => assets.has(item.ticker)) ? 'Dados salvos · atualizando…' : 'Consultando dados…';
   let failed = 0;
   async function worker() {
     while (queue.length) {
@@ -514,12 +632,27 @@ async function refreshSaved() {
         const asset = await requestAsset(entry.ticker);
         if (settings.list.some((item) => item.ticker === entry.ticker)) {
           assets.set(entry.ticker, asset);
+          cacheAsset(asset);
           if (preview?.ticker === entry.ticker && $('analysis-dialog').open) showAnalysis(asset);
         }
       } catch {
         failed += 1;
-        if (settings.list.some((item) => item.ticker === entry.ticker)) assets.set(entry.ticker, { ...entry, error: 'Consulta indisponível. Nova tentativa automática em um minuto.' });
+        if (settings.list.some((item) => item.ticker === entry.ticker)) {
+          const previous = assets.get(entry.ticker);
+          assets.set(entry.ticker, previous && !previous.error ? {
+            ...previous,
+            currentPrice: null,
+            sourceDate: null,
+            quoteSource: null,
+            quoteSourceUrl: null,
+            quoteStatus: 'unavailable',
+          } : { ...entry, error: 'Consulta indisponível. Nova tentativa automática em um minuto.' });
+        }
         if (preview?.ticker === entry.ticker && $('analysis-dialog').open) { $('analysis-dialog').close(); notify('A atualização desse ativo falhou. Nova tentativa em um minuto.', true); }
+      } finally {
+        completed += 1;
+        render();
+        if (completed < total) $('sync-status').textContent = `Atualizando ${completed}/${total}…`;
       }
     }
   }
@@ -540,7 +673,40 @@ $('ticker').addEventListener('focus', renderSearchSuggestions);
 $('ticker').addEventListener('keydown', (event) => {
   if (event.key === 'Escape') hideSuggestions();
 });
+document.querySelectorAll('.filter-menu').forEach((menu) => menu.addEventListener('toggle', () => {
+  if (!menu.open) return;
+  document.querySelectorAll('.filter-menu').forEach((other) => { if (other !== menu) other.open = false; });
+}));
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeFilters(); });
+$('favorites-filter').addEventListener('click', () => {
+  favoriteOnly = !favoriteOnly;
+  render();
+});
+document.querySelectorAll('[data-tab]').forEach((tab) => tab.addEventListener('click', () => {
+  closeFilters();
+  activeType = tab.dataset.tab;
+  selectedTicker = null;
+  render();
+}));
 document.addEventListener('click', (event) => {
+  const sectorOption = event.target.closest('[data-sector]');
+  if (sectorOption) {
+    settings.stockSector = canonicalSector(sectorOption.dataset.sector);
+    stockVisibleCount = STOCK_PAGE_SIZE;
+    closeFilters();
+    persist();
+    render();
+    return;
+  }
+  const sortOption = event.target.closest('[data-sort]');
+  if (sortOption) {
+    settings.sortOrder = sortOption.dataset.sort;
+    closeFilters();
+    persist();
+    render();
+    return;
+  }
+  if (!event.target.closest('.filter-menu')) closeFilters();
   const suggestion = event.target.closest('[data-suggest-ticker]');
   if (suggestion) {
     $('ticker').value = suggestion.dataset.suggestTicker;
@@ -549,30 +715,50 @@ document.addEventListener('click', (event) => {
     return;
   }
   if (!event.target.closest('.searchbar')) hideSuggestions();
-  const sectorButton = event.target.closest('[data-sector-filter]');
-  if (sectorButton) {
-    settings.stockSector = canonicalSector(sectorButton.dataset.sectorFilter);
-    stockVisibleCount = STOCK_PAGE_SIZE;
-    persist();
-    render();
-    return;
-  }
   const metric = event.target.closest('.metric-card');
   if (metric) {
     renderMetricHistory(metric);
     return;
   }
   const button = event.target.closest('[data-action]');
-  if (!button) return;
+  if (!button) {
+    const row = event.target.closest('[data-row-ticker]');
+    if (row) {
+      selectedTicker = row.dataset.rowTicker;
+      render();
+      if (window.matchMedia('(max-width: 960px)').matches) $('asset-insight').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    return;
+  }
   if (button.dataset.action === 'show-more-stocks') {
     stockVisibleCount += STOCK_PAGE_SIZE;
     render();
     return;
   }
   const ticker = button.dataset.ticker;
+  if (button.dataset.action === 'select') {
+    selectedTicker = ticker;
+    render();
+    if (window.matchMedia('(max-width: 960px)').matches) $('asset-insight').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  if (button.dataset.action === 'favorite') {
+    settings.favorites = settings.favorites.includes(ticker)
+      ? settings.favorites.filter((item) => item !== ticker) : [...settings.favorites, ticker];
+    persist();
+    render();
+    return;
+  }
   if (button.dataset.action === 'remove') {
     settings.list = settings.list.filter((item) => item.ticker !== ticker);
+    settings.favorites = settings.favorites.filter((item) => item !== ticker);
     assets.delete(ticker);
+    try {
+      const snapshots = readSnapshots();
+      delete snapshots[ticker];
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots));
+    } catch {}
+    if (selectedTicker === ticker) selectedTicker = null;
     const saved = persist();
     render();
     if (saved) notify(`${ticker} removido.`);
@@ -600,6 +786,7 @@ window.addEventListener('storage', (event) => {
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSaved(); });
 applySettings();
+hydrateCachedAssets();
 render();
 refreshSaved();
 setInterval(refreshSaved, 60_000);
