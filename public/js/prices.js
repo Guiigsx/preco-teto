@@ -436,23 +436,24 @@ function renderClassCompact(type) {
   if (!ranked.length) {
     const message = favoriteOnly ? 'Nenhum favorito nesta lista.' : type === 'stock' && settings.stockSector !== 'all' ? 'Nenhuma ação neste setor.' : type === 'stock' ? 'Nenhuma ação adicionada.' : 'Nenhum FII adicionado.';
     target.innerHTML = `<div class="empty compact-empty">${icon(type === 'stock' ? 'chart-no-axes-combined' : 'building-2')}<p>${message}</p></div>`;
-    return;
+    return ranked;
   }
   const visible = type === 'stock' ? ranked.slice(0, stockVisibleCount) : ranked;
   target.innerHTML = `<div class="table-scroll" tabindex="0" role="region" aria-label="Ranking de ${type === 'stock' ? 'ações' : 'FIIs'}"><table class="asset-table compact-table">
     <thead><tr><th scope="col">Ativo</th><th scope="col">Cotação</th><th scope="col">${type === 'stock' ? 'Preço de compra' : 'Valor de referência'}</th><th scope="col">${type === 'stock' ? 'Margem' : 'Desconto'}</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
-    <tbody>${visible.map((asset) => {
+    <tbody>${visible.map((asset, index) => {
       const margin = assetMargin(asset);
       const status = assetStatus(asset);
       const label = asset.loading ? 'Consultando…' : asset.error ? 'Consulta indisponível' : asset.name || asset.ticker;
       const favorite = settings.favorites.includes(asset.ticker);
-      return `<tr class="${asset.ticker === selectedTicker && type === activeType ? 'selected-row' : ''}" data-row-ticker="${escape(asset.ticker)}"><td class="identity-cell"><div class="asset-name">${logo(asset)}<button class="asset-link" type="button" data-action="select" data-ticker="${escape(asset.ticker)}" aria-label="Selecionar ${escape(asset.ticker)}">${escape(asset.ticker)}<small title="${escape(label)}">${escape(label)}</small>${type === 'stock' ? `<span class="strategy-tag">${escape(STRATEGY_LABELS[strategyFor(asset)])}</span>` : ''}</button></div></td>
+      return `<tr class="${asset.ticker === selectedTicker && type === activeType ? 'selected-row' : ''}" data-row-ticker="${escape(asset.ticker)}"><td class="identity-cell"><div class="asset-name"><span class="rank-index" aria-label="Posição ${index + 1}">#${index + 1}</span>${logo(asset)}<button class="asset-link" type="button" data-action="select" data-ticker="${escape(asset.ticker)}" aria-label="Selecionar ${escape(asset.ticker)}">${escape(asset.ticker)}<small title="${escape(label)}">${escape(label)}</small>${type === 'stock' ? `<span class="strategy-tag">${escape(STRATEGY_LABELS[strategyFor(asset)])}</span>` : ''}</button></div></td>
         <td data-label="Cotação"><span class="cell-value">${money(recentQuote(asset) ? asset.currentPrice : null)}</span>${Number.isFinite(asset.currentPrice) ? `<small class="quote-date">${escape(quoteDate(asset))}</small>` : ''}</td>
         <td data-label="${type === 'stock' ? 'Preço de compra' : 'Valor de referência'}" class="price-selected">${money(referencePrice(asset))}</td>
         <td data-label="${type === 'stock' ? 'Margem' : 'Desconto'}" class="${margin === null ? '' : margin >= 0 ? 'positive-text' : 'negative-text'}">${percent(margin)}</td>
         <td data-label="Situação"><span class="status-pill ${status.className}">${status.text}</span></td>
         <td class="actions-cell"><div class="row-actions"><button class="icon-button favorite-button ${favorite ? 'active' : ''}" type="button" data-action="favorite" data-ticker="${escape(asset.ticker)}" aria-pressed="${favorite}" title="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}" aria-label="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}">${favoriteIcon(favorite)}</button><button class="icon-button remove" type="button" data-action="remove" data-ticker="${escape(asset.ticker)}" title="Remover ${escape(asset.ticker)}" aria-label="Remover ${escape(asset.ticker)}">${icon('trash-2')}</button></div></td></tr>`;
     }).join('')}</tbody></table></div>${type === 'stock' && ranked.length > visible.length ? `<div class="show-more-row"><button class="button secondary" type="button" data-action="show-more-stocks">Mostrar mais ${Math.min(STOCK_PAGE_SIZE, ranked.length - visible.length)}</button></div>` : ''}`;
+  return ranked;
 }
 
 function methodLine(label, value, maximum) {
@@ -460,7 +461,7 @@ function methodLine(label, value, maximum) {
   return `<div class="method-line"><span>${label}</span><div class="method-track"><i style="width:${width}%"></i></div><strong>${money(value)}</strong></div>`;
 }
 
-function renderInsight() {
+function renderInsight(ranked) {
   const panel = $('asset-insight');
   const asset = assets.get(selectedTicker);
   if (!selectedTicker) {
@@ -485,7 +486,8 @@ function renderInsight() {
   const fii = valuation.fii || {};
   const fiiIncomePrice = reference === null ? null : fii.incomePrice;
   const fiiMaximum = Math.max(fiiIncomePrice || 0, fii.vpa || 0);
-  panel.innerHTML = `<div class="insight-heading">${logo(asset)}<div><h2>${escape(asset.ticker)}</h2><strong>${escape(asset.name || asset.ticker)}</strong><small>${escape(sector)} · ${escape(control)}</small></div></div>
+  const position = ranked.findIndex((item) => item.ticker === asset.ticker) + 1;
+  panel.innerHTML = `<div class="insight-heading">${logo(asset)}<div><h2>${escape(asset.ticker)}</h2><strong>${escape(asset.name || asset.ticker)}</strong><small>${escape(sector)} · ${escape(control)}</small></div>${position ? `<span class="rank-summary" title="Posição conforme os filtros e a ordenação atuais"><span>Posição</span><strong>#${position}</strong><span>de ${ranked.length}</span></span>` : ''}</div>
     <div class="insight-source">${recentQuote(asset) ? `Cotação de ${escape(quoteDate(asset))}` : 'Cotação indisponível'} · ${quoteSource ? `<a href="${quoteSource}" target="_blank" rel="noopener noreferrer">Stock Teto API</a>` : 'API indisponível'}${source ? ` · <a href="${escape(source)}" target="_blank" rel="noopener noreferrer">Fundamentos</a>` : ''}</div>
     ${asset.type === 'stock' ? strategyControl(asset) : ''}
     <div class="insight-primary"><div><small>${asset.type === 'stock' ? 'Preço de compra' : 'Valor de referência'}</small><strong>${money(reference)}</strong></div><div><small>${asset.type === 'stock' ? 'Margem de segurança' : 'Desconto estimado'}</small><strong class="${margin === null ? '' : margin >= 0 ? 'positive-text' : 'negative-text'}">${percent(margin)}</strong></div></div>
@@ -512,9 +514,9 @@ function render() {
   $('favorites-filter').innerHTML = favoriteIcon(favoriteOnly);
   renderSectorFilter();
   renderSortFilter();
-  renderClassCompact('stock');
-  renderClassCompact('fii');
-  renderInsight();
+  const stocks = renderClassCompact('stock');
+  const fiis = renderClassCompact('fii');
+  renderInsight(activeType === 'stock' ? stocks : fiis);
 }
 
 function showAnalysis(asset) {

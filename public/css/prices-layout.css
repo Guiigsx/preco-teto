@@ -177,6 +177,7 @@ body { background: var(--bg); }
 .compact-table td { padding: 14px 12px; height: 94px; font-size: 13px; }
 .compact-table td:first-child { padding-left: 20px; }
 .compact-table .asset-name { min-width: 0; }
+.rank-index { display: inline-block; flex: 0 0 28px; width: 28px; color: #536176; font-family: var(--display); font-size: 12px; font-weight: 700; text-align: center; }
 .compact-table .logo { width: 40px; height: 40px; }
 .compact-table .asset-link { min-width: 0; font-size: 13px; }
 .compact-table .asset-link small { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
@@ -215,6 +216,8 @@ body { background: var(--bg); }
 .insight-heading strong, .insight-heading small { display: block; overflow-wrap: anywhere; }
 .insight-heading strong { margin-top: 3px; font-size: 13px; font-weight: 600; }
 .insight-heading small { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.rank-summary { display: flex; flex-direction: column; align-items: flex-end; flex: 0 0 auto; margin-left: auto; color: var(--muted); font-size: 11px; line-height: 1.25; }
+.rank-summary strong { margin: 2px 0; color: var(--blue); font-family: var(--display); font-size: 21px; line-height: 1; }
 .insight-source { margin: 17px 0 20px; font-size: 12px; color: var(--muted); }
 .insight-source a { color: var(--blue); text-decoration: none; }
 .insight-source a:hover { text-decoration: underline; }
@@ -319,11 +322,12 @@ footer { margin-top: 18px; }
   .favorite-toggle { flex: 0 0 38px; }
   .compact-table tr { gap: 15px 12px; padding: 16px 15px; }
   .compact-table tr.selected-row { box-shadow: inset 4px 0 var(--blue); }
-  .compact-table tr.selected-row td:first-child { box-shadow: none; }
+  .compact-table tbody tr.selected-row td:first-child { box-shadow: none; }
   .compact-table td { height: auto; padding: 0; font-size: 14px; }
   .compact-table td:first-child { padding-left: 0; }
   .compact-table td:nth-child(5) { display: block; }
   .compact-table .identity-cell { padding-right: 70px; }
+  .compact-table .rank-index { flex-basis: 26px; width: 26px; font-size: 11px; }
   .compact-table .logo { width: 38px; height: 38px; }
   .compact-table .asset-link small { max-width: 200px; }
   .compact-table .actions-cell { right: 10px; top: 17px; }

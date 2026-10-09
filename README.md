@@ -8,7 +8,7 @@ Um painel para comparar **preços de compra de ações e FIIs brasileiros**. Voc
 
 1. Busque uma empresa ou ticker e escolha **Adicionar** para colocá-la no ranking, ou **Analisar** para consultar sem salvar.
 2. Alterne entre **Ações** e **FIIs**. Filtre ações por setor, ordene por margem e marque favoritos com a estrela.
-3. Selecione um ativo para ver os métodos lado a lado; abra **Ver memória de cálculo** para conferir os números usados.
+3. Selecione um ativo para ver sua posição na lista e os métodos lado a lado; abra **Ver memória de cálculo** para conferir os números usados.
 
 A lista, os favoritos e o perfil escolhido para cada ação ficam salvos **neste navegador**. O app começa vazio e não importa uma carteira automaticamente.
 
