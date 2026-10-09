@@ -1,35 +1,50 @@
 # Stock Teto
 
-Aplicacao web para analisar precos de referencia de acoes brasileiras e FIIs com dados publicos.
+Um painel para comparar **preços de compra de ações e FIIs brasileiros**. Você escolhe os ativos que quer acompanhar; o app mostra a cotação disponível, os valores calculados por método e a margem em relação ao preço de referência. [Abrir o Stock Teto](https://stock-teto.vercel.app/).
 
-## Funcionalidades
+![Ranking de ações com perfil de investimento e preços por método](docs/images/acoes.png)
 
-- Busca por ticker ou nome da empresa.
-- Ranking de acoes por margem de seguranca.
-- Filtro visual por setor.
-- Analise de acoes por Bazin, Graham, Gordon e preco medio com margem.
-- Analise de FIIs por renda normalizada, VPA, P/VP, valor de referencia, desconto estimado e nota de qualidade.
-- Atualizacao automatica dos ativos salvos no navegador.
+## Como funciona
+
+1. Busque uma empresa ou ticker e escolha **Adicionar** para colocá-la no ranking, ou **Analisar** para consultar sem salvar.
+2. Alterne entre **Ações** e **FIIs**. Filtre ações por setor, ordene por margem e marque favoritos com a estrela.
+3. Selecione um ativo para ver os métodos lado a lado; abra **Ver memória de cálculo** para conferir os números usados.
+
+A lista, os favoritos e o perfil escolhido para cada ação ficam salvos **neste navegador**. O app começa vazio e não importa uma carteira automaticamente.
+
+## Ações: um perfil para cada tese
+
+Cada ação tem um perfil editável no painel do ativo:
+
+| Perfil | Métodos que entram no preço de compra | Uso |
+| --- | --- | --- |
+| **Renda** | Bazin e Gordon | Para teses apoiadas em distribuição de dividendos. |
+| **Equilibrada** | Bazin, Graham e Gordon | Para comparar renda e lucro/patrimônio sem priorizar um lado. |
+| **Crescimento** | Graham | Não penaliza a ação pela ausência de dividendos. |
+
+O app calcula os métodos para comparação, mas faz a média **somente dos métodos válidos para o perfil escolhido**. Sobre a referência resultante, aplica margem de segurança de **15% para empresas privadas** e **20% para estatais**. O perfil pode ser alterado a qualquer momento; a lista é reordenada imediatamente. **SUZB3 começa como crescimento**, e os demais ativos começam como equilibrados até você ajustar a tese.
+
+No perfil crescimento, Graham usa **LPA e VPA atuais**. Ele não prevê crescimento futuro nem normaliza ciclos de lucro. Por isso, um preço de compra calculado não substitui a análise da empresa; se LPA ou VPA não forem válidos, o app não inventa um preço.
+
+## FIIs: renda e patrimônio
+
+![Ranking de FIIs com renda normalizada e valor patrimonial](docs/images/fiis.png)
+
+O valor de referência combina o preço pela **renda mensal normalizada** com o **valor patrimonial por cota (VPA)**. Para fundos de tijolo, o ponto de partida é **70% renda + 30% VPA**; o painel também mostra P/VP, desconto estimado, nota indicativa e riscos disponíveis. A nota é uma triagem quantitativa, não uma verificação completa dos imóveis, contratos ou crédito.
+
+## Dados e limites
+
+- As cotações são consultadas pela [Stock Teto API](https://stock-teto-api.vercel.app/docs); fundamentos e histórico público vêm do Investidor10. O detalhe de cada ativo exibe as fontes e a data da cotação.
+- Os ativos salvos são atualizados automaticamente quando a página está visível, com novas tentativas a cada minuto. **Isso não significa cotação em tempo real.** Uma cotação vencida ou indisponível não é apresentada como atual.
+- Métodos sem dados suficientes ficam sem valor. Preços calculados são referências para estudo, **não recomendações de investimento**.
 
 ## Rodar localmente
+
+Requer Node.js. No diretório do projeto:
 
 ```bash
 npm install
 npm start
 ```
 
-Depois acesse:
-
-```text
-http://localhost:3000
-```
-
-## Testes
-
-```bash
-node --test tests/fair-prices.test.js
-```
-
-## Observacao
-
-Os calculos sao modelos quantitativos para triagem e nao recomendacao de investimento. As premissas mais sensiveis sao taxa de retorno exigida, dividendo normalizado, VPA e qualidade dos dados publicos.
+Abra `http://localhost:3000`. Para executar os testes: `node --test tests/*.test.js`.
