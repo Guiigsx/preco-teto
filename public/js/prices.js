@@ -11,9 +11,12 @@ const money = (value, digits = 2) => Number.isFinite(value)
 const percent = (value) => Number.isFinite(value) ? `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : '—';
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const icon = (name) => `<img src="/icons/${name}.svg" alt="" />`;
-const defaults = () => ({ list: [], stockSector: 'all', favorites: [], sortOrder: 'margin' });
+const defaults = () => ({ list: [], stockSector: 'all', favorites: [], sortOrder: 'margin', strategies: {} });
 const STOCK_CONFIG = { method: 'buy', bazinYield: 10, gordonReturn: 12 };
 const FII_CONFIG = { method: 'fiiReference', requiredReturn: 10 };
+const STRATEGY_LABELS = { balanced: 'Equilibrada', income: 'Renda', growth: 'Crescimento' };
+const STRATEGY_METHODS = { balanced: 'Bazin, Graham e Gordon', income: 'Bazin e Gordon', growth: 'Graham' };
+const DEFAULT_STRATEGIES = { SUZB3: 'growth' };
 const methodNames = { buy: 'Compra', bazin: 'Bazin 10%', graham: 'Graham', gordon: 'Gordon', best: 'Maior margem', fiiReference: 'VR renda + VPA' };
 const SECTOR_META = {
   Bancos: { icon: 'landmark', color: '#165dff', legend: 'Bancos, financeiras e holdings bancárias' },
@@ -136,7 +139,8 @@ function readSaved() {
     const stockSector = typeof raw.stockSector === 'string' ? canonicalSector(raw.stockSector) : 'all';
     const favorites = Array.isArray(raw.favorites) ? raw.favorites.filter((ticker) => list.some((row) => row.ticker === ticker)) : [];
     const sortOrder = ['margin', 'ticker', 'price', 'reference'].includes(raw.sortOrder) ? raw.sortOrder : 'margin';
-    return { list, stockSector, favorites, sortOrder };
+    const strategies = Object.fromEntries(Object.entries(raw.strategies || {}).filter(([ticker, strategy]) => /^[A-Z]{4}\d{1,2}$/.test(ticker) && Object.hasOwn(STRATEGY_LABELS, strategy)).slice(0, 100));
+    return { list, stockSector, favorites, sortOrder, strategies };
   } catch { return defaults(); }
 }
 
@@ -162,6 +166,24 @@ function persist() {
     notify('O navegador não permitiu salvar. Sua lista ficará disponível somente nesta sessão.', true);
     return false;
   }
+}
+
+function strategyFor(asset) {
+  return settings.strategies?.[asset.ticker] || DEFAULT_STRATEGIES[asset.ticker] || 'balanced';
+}
+
+function evaluateAsset(asset) {
+  return model.evaluate(asset, asset.type === 'stock' ? { ...STOCK_CONFIG, strategy: strategyFor(asset) } : FII_CONFIG);
+}
+
+function strategyControl(asset) {
+  const current = strategyFor(asset);
+  const caution = current === 'growth' ? ' Graham usa lucro e patrimônio atuais; não projeta crescimento nem normaliza ciclos.' : '';
+  return `<div class="strategy-control" role="group" aria-label="Estratégia de ${escape(asset.ticker)}"><span>Perfil do ativo</span><div>${Object.entries(STRATEGY_LABELS).map(([key, label]) => `<button type="button" data-strategy="${key}" data-ticker="${escape(asset.ticker)}" aria-pressed="${key === current}" title="${escape(STRATEGY_METHODS[key])}">${label}</button>`).join('')}</div><small>Preço de compra usa ${escape(STRATEGY_METHODS[current])} com dados válidos.${caution}</small></div>`;
+}
+
+function favoriteIcon(active) {
+  return `<svg class="favorite-star" viewBox="0 0 24 24" fill="${active ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg>`;
 }
 
 function readSnapshots() {
@@ -258,6 +280,9 @@ function metricRule(asset, key) {
 
 function metricStatus(asset, key, value) {
   if (!Number.isFinite(value)) return { className: 'neutral', label: 'Sem parâmetro confiável' };
+  if (strategyFor(asset) === 'growth' && ['payout', 'dividendYield'].includes(key)) {
+    return { className: 'neutral', label: 'Informativo neste perfil' };
+  }
   const rule = metricRule(asset, key);
   const goodMin = rule.min === undefined || value >= rule.min;
   const goodMax = rule.max === undefined || value <= rule.max;
@@ -397,7 +422,7 @@ function sortedAssets(type) {
     .map((item) => assets.get(item.ticker) || { ...item, loading: true })
     .filter((asset) => type !== 'stock' || settings.stockSector === 'all' || stockSector(asset) === settings.stockSector)
     .filter((asset) => !favoriteOnly || settings.favorites.includes(asset.ticker));
-  const ranked = model.rank(list, type === 'stock' ? STOCK_CONFIG : FII_CONFIG);
+  const ranked = model.rank(list, type === 'stock' ? (asset) => ({ ...STOCK_CONFIG, strategy: strategyFor(asset) }) : FII_CONFIG);
   if (settings.sortOrder === 'ticker') ranked.sort((a, b) => a.ticker.localeCompare(b.ticker));
   if (settings.sortOrder === 'price') ranked.sort((a, b) => (a.currentPrice ?? Infinity) - (b.currentPrice ?? Infinity));
   if (settings.sortOrder === 'reference') ranked.sort((a, b) => (referencePrice(a) ?? Infinity) - (referencePrice(b) ?? Infinity));
@@ -421,12 +446,12 @@ function renderClassCompact(type) {
       const status = assetStatus(asset);
       const label = asset.loading ? 'Consultando…' : asset.error ? 'Consulta indisponível' : asset.name || asset.ticker;
       const favorite = settings.favorites.includes(asset.ticker);
-      return `<tr class="${asset.ticker === selectedTicker && type === activeType ? 'selected-row' : ''}" data-row-ticker="${escape(asset.ticker)}"><td class="identity-cell"><div class="asset-name">${logo(asset)}<button class="asset-link" type="button" data-action="select" data-ticker="${escape(asset.ticker)}" aria-label="Selecionar ${escape(asset.ticker)}">${escape(asset.ticker)}<small title="${escape(label)}">${escape(label)}</small></button></div></td>
+      return `<tr class="${asset.ticker === selectedTicker && type === activeType ? 'selected-row' : ''}" data-row-ticker="${escape(asset.ticker)}"><td class="identity-cell"><div class="asset-name">${logo(asset)}<button class="asset-link" type="button" data-action="select" data-ticker="${escape(asset.ticker)}" aria-label="Selecionar ${escape(asset.ticker)}">${escape(asset.ticker)}<small title="${escape(label)}">${escape(label)}</small>${type === 'stock' ? `<span class="strategy-tag">${escape(STRATEGY_LABELS[strategyFor(asset)])}</span>` : ''}</button></div></td>
         <td data-label="Cotação"><span class="cell-value">${money(recentQuote(asset) ? asset.currentPrice : null)}</span>${Number.isFinite(asset.currentPrice) ? `<small class="quote-date">${escape(quoteDate(asset))}</small>` : ''}</td>
         <td data-label="${type === 'stock' ? 'Preço de compra' : 'Valor de referência'}" class="price-selected">${money(referencePrice(asset))}</td>
         <td data-label="${type === 'stock' ? 'Margem' : 'Desconto'}" class="${margin === null ? '' : margin >= 0 ? 'positive-text' : 'negative-text'}">${percent(margin)}</td>
         <td data-label="Situação"><span class="status-pill ${status.className}">${status.text}</span></td>
-        <td class="actions-cell"><div class="row-actions"><button class="icon-button favorite-button ${favorite ? 'active' : ''}" type="button" data-action="favorite" data-ticker="${escape(asset.ticker)}" aria-pressed="${favorite}" title="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}" aria-label="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}">${icon('star')}</button><button class="icon-button remove" type="button" data-action="remove" data-ticker="${escape(asset.ticker)}" title="Remover ${escape(asset.ticker)}" aria-label="Remover ${escape(asset.ticker)}">${icon('trash-2')}</button></div></td></tr>`;
+        <td class="actions-cell"><div class="row-actions"><button class="icon-button favorite-button ${favorite ? 'active' : ''}" type="button" data-action="favorite" data-ticker="${escape(asset.ticker)}" aria-pressed="${favorite}" title="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}" aria-label="${favorite ? 'Desfavoritar' : 'Favoritar'} ${escape(asset.ticker)}">${favoriteIcon(favorite)}</button><button class="icon-button remove" type="button" data-action="remove" data-ticker="${escape(asset.ticker)}" title="Remover ${escape(asset.ticker)}" aria-label="Remover ${escape(asset.ticker)}">${icon('trash-2')}</button></div></td></tr>`;
     }).join('')}</tbody></table></div>${type === 'stock' && ranked.length > visible.length ? `<div class="show-more-row"><button class="button secondary" type="button" data-action="show-more-stocks">Mostrar mais ${Math.min(STOCK_PAGE_SIZE, ranked.length - visible.length)}</button></div>` : ''}`;
 }
 
@@ -446,7 +471,7 @@ function renderInsight() {
     panel.innerHTML = `<div class="insight-empty">${icon(asset?.error ? 'circle-help' : 'scan-search')}<h2>${escape(selectedTicker)}</h2><p>${escape(asset?.error || 'Consultando dados do ativo…')}</p></div>`;
     return;
   }
-  const valuation = model.evaluate(asset, asset.type === 'stock' ? STOCK_CONFIG : FII_CONFIG);
+  const valuation = evaluateAsset(asset);
   const view = { ...asset, valuation };
   const reference = referencePrice(view);
   const margin = assetMargin(view);
@@ -462,10 +487,11 @@ function renderInsight() {
   const fiiMaximum = Math.max(fiiIncomePrice || 0, fii.vpa || 0);
   panel.innerHTML = `<div class="insight-heading">${logo(asset)}<div><h2>${escape(asset.ticker)}</h2><strong>${escape(asset.name || asset.ticker)}</strong><small>${escape(sector)} · ${escape(control)}</small></div></div>
     <div class="insight-source">${recentQuote(asset) ? `Cotação de ${escape(quoteDate(asset))}` : 'Cotação indisponível'} · ${quoteSource ? `<a href="${quoteSource}" target="_blank" rel="noopener noreferrer">Stock Teto API</a>` : 'API indisponível'}${source ? ` · <a href="${escape(source)}" target="_blank" rel="noopener noreferrer">Fundamentos</a>` : ''}</div>
+    ${asset.type === 'stock' ? strategyControl(asset) : ''}
     <div class="insight-primary"><div><small>${asset.type === 'stock' ? 'Preço de compra' : 'Valor de referência'}</small><strong>${money(reference)}</strong></div><div><small>${asset.type === 'stock' ? 'Margem de segurança' : 'Desconto estimado'}</small><strong class="${margin === null ? '' : margin >= 0 ? 'positive-text' : 'negative-text'}">${percent(margin)}</strong></div></div>
     <div class="insight-status"><span class="status-pill ${status.className}">${status.text}</span><span>Cotação ${money(recentQuote(asset) ? asset.currentPrice : null)}</span></div>
     ${asset.type === 'stock'
-      ? `<section class="insight-methods"><h3>Preços por método</h3>${methodLine('Bazin 10%', valuation.bazin, maximum)}${methodLine('Graham', valuation.graham, maximum)}${methodLine('Gordon', valuation.gordon, maximum)}</section><div class="insight-breakdown"><span>Média <strong>${money(valuation.fairAverage)}</strong></span><span>Margem aplicada <strong>${percent(valuation.safetyMargin)}</strong></span></div>`
+      ? `<section class="insight-methods"><h3>Preços por método</h3>${methodLine('Bazin 10%', valuation.bazin, maximum)}${methodLine('Graham', valuation.graham, maximum)}${methodLine('Gordon', valuation.gordon, maximum)}</section><div class="insight-breakdown"><span>Referência do perfil <strong>${money(valuation.fairAverage)}</strong></span><span>Margem aplicada <strong>${percent(valuation.safetyMargin)}</strong></span></div>`
       : `<section class="insight-methods"><h3>Renda e patrimônio</h3>${methodLine('Pela renda', fiiIncomePrice, fiiMaximum)}${methodLine('VPA', fii.vpa, fiiMaximum)}</section><div class="insight-breakdown"><span>Div. normalizado <strong>${money(fii.normalizedMonthlyDividend, 4)}</strong></span><span>DY normalizado <strong>${percent(fii.normalizedDy)}</strong></span><span>P/VP <strong>${Number.isFinite(fii.pvp) ? fii.pvp.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'}</strong></span><span>Nota indicativa <strong>${Number.isFinite(fii.qualityScore) ? fii.qualityScore.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—'}</strong></span></div><p class="insight-caution">Qualidade requer verificar imóveis, contratos e concentração.${reference === null ? ' Taxa mínima indisponível.' : ''}</p>`}
     <button class="insight-detail" type="button" data-action="analyze" data-ticker="${escape(asset.ticker)}">Ver memória de cálculo ${icon('arrow-right')}</button>`;
 }
@@ -483,6 +509,7 @@ function render() {
   }
   $('sector-control').hidden = activeType !== 'stock';
   $('favorites-filter').setAttribute('aria-pressed', String(favoriteOnly));
+  $('favorites-filter').innerHTML = favoriteIcon(favoriteOnly);
   renderSectorFilter();
   renderSortFilter();
   renderClassCompact('stock');
@@ -492,7 +519,7 @@ function render() {
 
 function showAnalysis(asset) {
   preview = asset;
-  const valuation = model.evaluate(asset, asset.type === 'stock' ? STOCK_CONFIG : FII_CONFIG);
+  const valuation = evaluateAsset(asset);
   const bazinYield = valuation.assumptions.bazinYield;
   const gordonGrowth = valuation.assumptions.gordonGrowth;
   const history = asset.dividends;
@@ -514,9 +541,9 @@ function showAnalysis(asset) {
     <div class="formula">${money(valuation.assumptions.gordonNextDividend, 4)} ÷ (${percent(valuation.assumptions.gordonReturn)} − ${percent(gordonGrowth.selected)}) = <b>${money(valuation.gordon)}</b></div>
     <p>Use com cautela em ações. O crescimento fica limitado pelo menor valor entre CAGR dos dividendos (${percent(gordonGrowth.dividendCagr)}), ROE × retenção (${percent(gordonGrowth.sustainableGrowth)}) e teto de ${percent(gordonGrowth.cap)}.</p>` : '<p>Gordon exige histórico completo de proventos em dinheiro.</p>'}</section>` : '';
   const averageBody = asset.type === 'stock' ? `<section class="method-block"><div class="method-heading"><h3>Preço de compra</h3><strong>${money(valuation.buyPrice)}</strong></div>
-    <div class="calculation-inputs"><span>Média dos métodos <b>${money(valuation.fairAverage)}</b></span><span>Margem aplicada <b>${percent(valuation.safetyMargin)}</b></span></div>
-    ${Number.isFinite(valuation.buyPrice) ? `<div class="formula">${money(valuation.fairAverage)} × (1 − ${percent(valuation.safetyMargin)}) = <b>${money(valuation.buyPrice)}</b></div>` : '<p>É preciso ao menos um preço teto válido para calcular o preço de compra.</p>'}</section>` : '';
-  const stockAnalysisBody = asset.type === 'stock' ? `${profileBody}${fundamentalsGrid(asset)}${averageBody}${grahamBody}${gordonBody}
+    <div class="calculation-inputs"><span>Métodos usados <b>${escape(valuation.includedMethods.map((name) => methodNames[name]).join(' + ') || 'Nenhum')}</b></span><span>Referência <b>${money(valuation.fairAverage)}</b></span><span>Margem aplicada <b>${percent(valuation.safetyMargin)}</b></span></div>
+    ${Number.isFinite(valuation.buyPrice) ? `<div class="formula">${money(valuation.fairAverage)} × (1 − ${percent(valuation.safetyMargin)}) = <b>${money(valuation.buyPrice)}</b></div>` : '<p>Dados insuficientes para os métodos deste perfil. Nenhum preço de compra foi estimado.</p>'}</section>` : '';
+  const stockAnalysisBody = asset.type === 'stock' ? `${profileBody}${strategyControl(asset)}${fundamentalsGrid(asset)}${averageBody}${grahamBody}${gordonBody}
     <section class="method-block"><div class="method-heading"><h3>Bazin histórico · ${percent(bazinYield)}</h3><strong>${money(valuation.bazin)}</strong></div>${historyBody}</section>
     <section class="method-block"><div class="method-heading"><h3>Margem · ${escape(methodNames[valuation.selectedMethod] || 'Bazin 10%')}</h3><strong>${percent(valuation.margin)}</strong></div>${Number.isFinite(valuation.margin) ? `<div class="formula">(1 − ${money(asset.currentPrice)} ÷ ${money(valuation.selected)}) × 100 = ${percent(valuation.margin)}</div>` : '<p>Sem dados suficientes para calcular a margem.</p>'}</section>` : '';
   const fiiAnalysisBody = asset.type === 'fii' ? `${fundamentalsGrid(asset)}${fiiAnalysisSections(asset, valuation, history)}` : '';
@@ -715,6 +742,16 @@ document.addEventListener('click', (event) => {
     return;
   }
   if (!event.target.closest('.searchbar')) hideSuggestions();
+  const strategyButton = event.target.closest('[data-strategy]');
+  if (strategyButton) {
+    const { ticker, strategy } = strategyButton.dataset;
+    if (!Object.hasOwn(STRATEGY_LABELS, strategy)) return;
+    settings.strategies[ticker] = strategy;
+    persist();
+    render();
+    if (preview?.ticker === ticker && $('analysis-dialog').open) showAnalysis(preview);
+    return;
+  }
   const metric = event.target.closest('.metric-card');
   if (metric) {
     renderMetricHistory(metric);
@@ -752,6 +789,7 @@ document.addEventListener('click', (event) => {
   if (button.dataset.action === 'remove') {
     settings.list = settings.list.filter((item) => item.ticker !== ticker);
     settings.favorites = settings.favorites.filter((item) => item !== ticker);
+    delete settings.strategies[ticker];
     assets.delete(ticker);
     try {
       const snapshots = readSnapshots();
