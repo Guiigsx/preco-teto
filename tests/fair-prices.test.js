@@ -48,6 +48,27 @@ test('stocks rank by average fair value discounted by the safety margin', () => 
   assert.equal(evaluate({ ...a, currentPrice: null }).margin, null);
 });
 
+test('growth strategy ignores dividends and can value an asset with no payouts', () => {
+  const asset = { ticker: 'SUZB3', type: 'stock', currentPrice: 20, lpa: 4, vpa: 40,
+    dividends: { complete: false, average: null }, profile: { controlType: 'private' } };
+  const result = evaluate(asset, { strategy: 'growth' });
+  assert.deepEqual(result.includedMethods, ['graham']);
+  assert.equal(result.bazin, null);
+  assert.equal(result.gordon, null);
+  assert.equal(result.fairAverage, 60);
+  assert.equal(result.buyPrice, 51);
+  assert.ok(result.margin > 0);
+  assert.equal(evaluate({ ...asset, lpa: null }, { strategy: 'growth' }).buyPrice, null);
+});
+
+test('income strategy excludes Graham even when earnings are available', () => {
+  const asset = { type: 'stock', currentPrice: 20, lpa: 4, vpa: 40,
+    dividends: { complete: false, average: null } };
+  assert.equal(evaluate(asset, { strategy: 'income' }).buyPrice, null);
+  assert.equal(evaluate(asset, { strategy: 'balanced' }).buyPrice, 51);
+  assert.deepEqual(rank([asset], () => ({ strategy: 'growth' }))[0].valuation.includedMethods, ['graham']);
+});
+
 function fixture(extra = '') {
   return `<html><head><title>TEST3 - Empresa - Indicadores</title><link rel="canonical" href="https://investidor10.com.br/acoes/test3/"></head><body>
     <img src="/storage/companies/wrong.png" alt="ABCD3"><img src="/storage/companies/right.png" alt="TEST3 - Empresa">

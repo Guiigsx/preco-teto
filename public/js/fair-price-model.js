@@ -10,6 +10,11 @@
   const PRIVATE_SAFETY_MARGIN = 15;
   const STATE_SAFETY_MARGIN = 20;
   const DEFAULT_FII_REQUIRED_RETURN = 10;
+  const STOCK_STRATEGIES = {
+    balanced: ['bazin', 'graham', 'gordon'],
+    income: ['bazin', 'gordon'],
+    growth: ['graham'],
+  };
 
   function validRate(value) {
     return Number.isFinite(value) && value >= 1 && value <= 30;
@@ -192,7 +197,10 @@
     const gordonSpread = growth ? gordonReturn - growth.selected : null;
     const gordon = asset.type === 'stock' && growth && gordonSpread >= 2
       ? asset.dividends.average * (1 + growth.selected / 100) / (gordonSpread / 100) : null;
-    const validPrices = [bazin, graham, gordon].filter((value) => positive(value));
+    const strategy = Object.hasOwn(STOCK_STRATEGIES, options.strategy) ? options.strategy : 'balanced';
+    const prices = { bazin, graham, gordon };
+    const includedMethods = STOCK_STRATEGIES[strategy].filter((name) => positive(prices[name]));
+    const validPrices = includedMethods.map((name) => prices[name]);
     const fairAverage = asset.type === 'stock' && validPrices.length
       ? validPrices.reduce((sum, value) => sum + value, 0) / validPrices.length : null;
     const safetyMargin = asset.type === 'stock'
@@ -224,6 +232,7 @@
       ? (1 - asset.currentPrice / selected) * 100 : null;
     return {
       bazin, graham, gordon, fairAverage, safetyMargin, buyPrice, selected, selectedMethod, margin,
+      strategy, includedMethods,
       assumptions: {
         bazinYield,
         gordonReturn,
@@ -235,7 +244,7 @@
   }
 
   function rank(assets, config = {}) {
-    return assets.map((asset) => ({ ...asset, valuation: evaluate(asset, config) }))
+    return assets.map((asset) => ({ ...asset, valuation: evaluate(asset, typeof config === 'function' ? config(asset) : config) }))
       .sort((a, b) => (b.valuation.margin ?? -Infinity) - (a.valuation.margin ?? -Infinity) || a.ticker.localeCompare(b.ticker));
   }
 
