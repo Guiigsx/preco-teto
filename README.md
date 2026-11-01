@@ -7,10 +7,14 @@ Um painel para comparar **preços de compra de ações e FIIs brasileiros**. Voc
 ## Como funciona
 
 1. Busque uma empresa ou ticker e escolha **Adicionar** para colocá-la no ranking, ou **Analisar** para consultar sem salvar.
-2. Alterne entre **Ações** e **FIIs**. Filtre ações por setor, ordene por margem e marque favoritos com a estrela.
+2. Alterne entre **Ações** e **FIIs**. Filtre ações por setor, ordene por margem, marque favoritos com a estrela e escolha o modo claro ou escuro no cabeçalho.
 3. Selecione um ativo para ver sua posição na lista e os métodos lado a lado; abra **Ver memória de cálculo** para conferir os números usados.
 
 A lista, os favoritos e o perfil escolhido para cada ação ficam salvos **neste navegador**. O app começa vazio e não importa uma carteira automaticamente.
+
+O tema escolhido também fica salvo no navegador.
+
+![Stock Teto no modo escuro](docs/images/modo-escuro.png)
 
 ## Ações: um perfil para cada tese
 

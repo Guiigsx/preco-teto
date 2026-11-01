@@ -1,6 +1,7 @@
 'use strict';
 
 const STORAGE_KEY = 'stock-teto.fair-prices.v1';
+const THEME_KEY = 'stock-teto.theme.v1';
 const SNAPSHOT_KEY = 'stock-teto.asset-snapshots.v1';
 const SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SNAPSHOT_QUOTE_AGE_MS = 5 * 60 * 1000;
@@ -153,6 +154,24 @@ let activeType = 'stock';
 let selectedTicker = null;
 let favoriteOnly = false;
 const requests = new Map();
+
+function setTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const button = $('theme-toggle');
+  const label = dark ? 'Ativar modo claro' : 'Ativar modo escuro';
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-pressed', String(dark));
+  button.title = label;
+  button.querySelector('img').src = `/icons/${dark ? 'sun' : 'moon'}.svg`;
+}
+
+setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+$('theme-toggle').addEventListener('click', () => {
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  setTheme(theme);
+  try { localStorage.setItem(THEME_KEY, theme); } catch {}
+});
 
 function notify(text, error = false) {
   $('message').textContent = text;
@@ -818,6 +837,10 @@ $('analysis-dialog').addEventListener('click', (event) => {
   if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) event.target.close();
 });
 window.addEventListener('storage', (event) => {
+  if (event.key === THEME_KEY) {
+    setTheme(event.newValue === 'dark' ? 'dark' : 'light');
+    return;
+  }
   if (event.key !== STORAGE_KEY) return;
   settings = readSaved();
   applySettings();

@@ -5,18 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Compare preço teto, preço de compra e margem de segurança por setor." />
   <title>Preços justos | Stock Teto</title>
+  <script>try { if (localStorage.getItem('stock-teto.theme.v1') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/prices.css?v=20260913-2" />
   <link rel="stylesheet" href="/css/prices-layout.css?v=20261009-2" />
+  <link rel="stylesheet" href="/css/theme.css?v=20261101-1" />
   <script defer src="/js/fair-price-model.js?v=20261009-1"></script>
-  <script defer src="/js/prices.js?v=20261009-2"></script>
+  <script defer src="/js/prices.js?v=20261101-1"></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Stock Teto, início"><span class="brand-mark"><img src="/icons/chart-no-axes-combined.svg" alt="" /></span><strong>Stock Teto</strong></a>
-    <span id="sync-status" class="header-label" role="status">Consultando dados disponíveis</span>
+    <div class="topbar-actions"><span id="sync-status" class="header-label" role="status">Consultando dados disponíveis</span><button id="theme-toggle" class="theme-toggle" type="button" aria-label="Ativar modo escuro" aria-pressed="false" title="Ativar modo escuro"><img src="/icons/moon.svg" alt="" /></button></div>
   </header>
   <main class="shell">
     <div class="page-heading"><h1>Preços de compra</h1><span id="asset-count" class="count-summary">0 ativos</span></div>
